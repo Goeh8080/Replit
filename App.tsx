@@ -1,4 +1,6 @@
-import { cacheDirectory, EncodingType, writeAsStringAsync } from "expo-file-system/legacy";
+import { cacheDirectory, documentDirectory, EncodingType, getContentUriAsync, makeDirectoryAsync, writeAsStringAsync } from "expo-file-system/legacy";
+import * as IntentLauncher from "expo-intent-launcher";
+import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
@@ -10,7 +12,7 @@ const ORIGIN = "https://granth.wnmsolutions.com";
 const LISTS = new Set(["getTopics", "getGranths", "getPramans"]);
 
 type SaveChunk = {
-  type: "save-chunk";
+  type: "save-chunk" | "share-chunk" | "open-chunk";
   id: string;
   name: string;
   mime: string;
@@ -157,8 +159,8 @@ async function onBridge(raw: string, view: WebView | null, parts: Map<string, st
   } catch {
     return;
   }
-  if (message.type === "save-chunk") {
-    await saveChunk(message, parts);
+  if (message.type === "save-chunk" || message.type === "share-chunk" || message.type === "open-chunk") {
+    await placeFile(message, parts);
     return;
   }
   if (message.type === "net") {
@@ -251,18 +253,57 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function saveChunk(message: SaveChunk, parts: Map<string, string[]>) {
-  if (!cacheDirectory) return;
+async function placeFile(message: SaveChunk, parts: Map<string, string[]>) {
   const bucket = parts.get(message.id) ?? [];
   bucket[message.index] = message.data;
   parts.set(message.id, bucket);
   if (bucket.filter((part) => part != null).length < message.total) return;
   parts.delete(message.id);
   const name = message.name.replace(/[^\w.\-\u0900-\u097F ]+/g, "_").slice(0, 80) || "granth.pdf";
-  const uri = `${cacheDirectory}${name}`;
+  const pdf = (message.mime || "").includes("pdf") || name.toLowerCase().endsWith(".pdf");
+  const root = pdf ? documentDirectory || cacheDirectory : cacheDirectory;
+  if (!root) return;
+  if (pdf && documentDirectory) {
+    await makeDirectoryAsync(`${documentDirectory}Granth`, { intermediates: true }).catch(() => undefined);
+  }
+  const uri = pdf && documentDirectory ? `${documentDirectory}Granth/${name}` : `${root}${name}`;
   await writeAsStringAsync(uri, bucket.join(""), { encoding: EncodingType.Base64 });
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: message.mime || "application/pdf", dialogTitle: name });
+  if (message.type === "share-chunk") {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType: message.mime || (pdf ? "application/pdf" : "image/jpeg"), dialogTitle: name });
+    }
+    return;
+  }
+  if (message.type === "open-chunk") {
+    await viewPdf(uri);
+    return;
+  }
+  if (!pdf) {
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);
+      if (permission.granted) await MediaLibrary.saveToLibraryAsync(uri);
+    } catch {
+      /* album permission can be denied; the in-app gallery copy remains */
+    }
+  }
+}
+
+async function viewPdf(uri: string) {
+  try {
+    const contentUri = await getContentUriAsync(uri);
+    const params = { data: contentUri, type: "application/pdf", flags: 1 };
+    try {
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        ...params,
+        packageName: "com.google.android.apps.docs",
+      });
+    } catch {
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", params);
+    }
+  } catch {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "PDF" });
+    }
   }
 }
 

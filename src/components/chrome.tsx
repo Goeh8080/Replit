@@ -1,6 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { useRef } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "../state/AppProvider";
@@ -9,14 +8,6 @@ export function BrandBar({ back = false }: { back?: boolean }) {
   const { colors, toggleTheme, settings } = useApp();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const taps = useRef<number[]>([]);
-  const onLogo = () => {
-    const now = Date.now();
-    taps.current = [...taps.current.filter((stamp) => now - stamp < 2500), now];
-    if (taps.current.length < 7) return;
-    taps.current = [];
-    navigation.navigate("AdminGate" as never);
-  };
   return (
     <View style={{ backgroundColor: colors.maroon, paddingTop: insets.top }}>
       <View style={styles.gold} />
@@ -26,9 +17,9 @@ export function BrandBar({ back = false }: { back?: boolean }) {
             <Ionicons name="chevron-back" size={22} color={colors.goldLight} />
           </Pressable>
         ) : (
-          <Pressable onPress={onLogo} style={[styles.mala, { borderColor: colors.gold }]} hitSlop={8}>
+          <View style={[styles.mala, { borderColor: colors.gold }]}>
             <View style={[styles.bead, { backgroundColor: colors.saffron }]} />
-          </Pressable>
+          </View>
         )}
         <View style={{ flex: 1 }}>
           <Text style={[styles.title, { color: colors.cream }]}>ग्रंथ प्रबंधन</Text>

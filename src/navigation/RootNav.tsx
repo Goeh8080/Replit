@@ -3,8 +3,6 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BrandBar, ToastBanner } from "../components/chrome";
 import { DashboardScreen } from "../screens/DashboardScreen";
-import { AdminGateScreen } from "../screens/AdminGateScreen";
-import { FeedbackScreen } from "../screens/FeedbackScreen";
 import { DownloadsScreen } from "../screens/DownloadsScreen";
 import { GalleryScreen } from "../screens/GalleryScreen";
 import { GranthsScreen } from "../screens/GranthsScreen";
@@ -18,8 +16,6 @@ export type RootStackParamList = {
   Home: undefined;
   Gallery: undefined;
   Downloads: undefined;
-  Feedback: undefined;
-  AdminGate: undefined;
 };
 
 export type TabParamList = {
@@ -69,8 +65,6 @@ export function RootNav() {
         <Stack.Screen name="Home" component={Tabs} options={{ headerShown: false }} />
         <Stack.Screen name="Gallery" component={GalleryScreen} />
         <Stack.Screen name="Downloads" component={DownloadsScreen} />
-        <Stack.Screen name="Feedback" component={FeedbackScreen} options={{ title: "प्रतिक्रिया" }} />
-        <Stack.Screen name="AdminGate" component={AdminGateScreen} options={{ title: "एडमिन" }} />
       </Stack.Navigator>
     </Shell>
   );

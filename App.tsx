@@ -1,4 +1,4 @@
-import { cacheDirectory, documentDirectory, EncodingType, getContentUriAsync, makeDirectoryAsync, writeAsStringAsync } from "expo-file-system/legacy";
+import { cacheDirectory, documentDirectory, EncodingType, getContentUriAsync, getInfoAsync, makeDirectoryAsync, writeAsStringAsync } from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
@@ -24,6 +24,7 @@ type SaveChunk = {
 type NetRequest = { type: "net"; id: string; path: string };
 type OpenMail = { type: "open-mail"; email: string };
 type OpenUrl = { type: "open-url"; url: string };
+type OpenSaved = { type: "open-saved"; name: string };
 
 const BRIDGE = `(function(){
   if (window.__granthBridge) return true;
@@ -153,10 +154,14 @@ function Shell() {
 }
 
 async function onBridge(raw: string, view: WebView | null, parts: Map<string, string[]>) {
-  let message: SaveChunk | NetRequest | OpenMail | OpenUrl;
+  let message: SaveChunk | NetRequest | OpenMail | OpenUrl | OpenSaved;
   try {
-    message = JSON.parse(raw) as SaveChunk | NetRequest | OpenMail | OpenUrl;
+    message = JSON.parse(raw) as SaveChunk | NetRequest | OpenMail | OpenUrl | OpenSaved;
   } catch {
+    return;
+  }
+  if (message.type === "open-saved") {
+    await openSaved(message.name, view);
     return;
   }
   if (message.type === "save-chunk" || message.type === "share-chunk" || message.type === "open-chunk") {
@@ -253,30 +258,68 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+const writing = new Map<string, Promise<string>>();
+
+function safeName(name: string) {
+  return name.replace(/[^\w.\-\u0900-\u097F ]+/g, "_").slice(0, 80) || "granth.pdf";
+}
+
+async function openSaved(rawName: string, view: WebView | null) {
+  const name = safeName(rawName);
+  const pending = writing.get(name);
+  if (pending) {
+    try {
+      await viewPdf(await pending);
+      return;
+    } catch {
+      /* write again below if the file is still missing */
+    }
+  }
+  const uri = documentDirectory ? `${documentDirectory}Granth/${name}` : "";
+  if (uri) {
+    const info = await getInfoAsync(uri).catch(() => null);
+    if (info && "exists" in info && info.exists) {
+      await viewPdf(uri);
+      return;
+    }
+  }
+  view?.injectJavaScript(`window.__granthOpenMiss&&window.__granthOpenMiss(${JSON.stringify(rawName)});true;`);
+}
+
 async function placeFile(message: SaveChunk, parts: Map<string, string[]>) {
   const bucket = parts.get(message.id) ?? [];
   bucket[message.index] = message.data;
   parts.set(message.id, bucket);
   if (bucket.filter((part) => part != null).length < message.total) return;
   parts.delete(message.id);
-  const name = message.name.replace(/[^\w.\-\u0900-\u097F ]+/g, "_").slice(0, 80) || "granth.pdf";
+  const name = safeName(message.name);
+  const job = writeFile(message, name, bucket.join(""));
+  writing.set(name, job);
+  try {
+    await job;
+  } finally {
+    if (writing.get(name) === job) writing.delete(name);
+  }
+}
+
+async function writeFile(message: SaveChunk, name: string, data: string) {
   const pdf = (message.mime || "").includes("pdf") || name.toLowerCase().endsWith(".pdf");
   const root = pdf ? documentDirectory || cacheDirectory : cacheDirectory;
-  if (!root) return;
+  if (!root) return "";
   if (pdf && documentDirectory) {
     await makeDirectoryAsync(`${documentDirectory}Granth`, { intermediates: true }).catch(() => undefined);
   }
   const uri = pdf && documentDirectory ? `${documentDirectory}Granth/${name}` : `${root}${name}`;
-  await writeAsStringAsync(uri, bucket.join(""), { encoding: EncodingType.Base64 });
+  await writeAsStringAsync(uri, data, { encoding: EncodingType.Base64 });
   if (message.type === "share-chunk") {
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(uri, { mimeType: message.mime || (pdf ? "application/pdf" : "image/jpeg"), dialogTitle: name });
     }
-    return;
+    return uri;
   }
   if (message.type === "open-chunk") {
     await viewPdf(uri);
-    return;
+    return uri;
   }
   if (!pdf) {
     try {
@@ -286,25 +329,16 @@ async function placeFile(message: SaveChunk, parts: Map<string, string[]>) {
       /* album permission can be denied; the in-app gallery copy remains */
     }
   }
+  return uri;
 }
 
 async function viewPdf(uri: string) {
-  try {
-    const contentUri = await getContentUriAsync(uri);
-    const params = { data: contentUri, type: "application/pdf", flags: 1 };
-    try {
-      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-        ...params,
-        packageName: "com.google.android.apps.docs",
-      });
-    } catch {
-      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", params);
-    }
-  } catch {
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "PDF" });
-    }
-  }
+  const contentUri = await getContentUriAsync(uri);
+  await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+    data: contentUri,
+    type: "application/pdf",
+    flags: 1,
+  });
 }
 
 const styles = StyleSheet.create({

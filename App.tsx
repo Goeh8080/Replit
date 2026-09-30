@@ -4,7 +4,7 @@ import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
-import { Image, Linking, StyleSheet, View } from "react-native";
+import { BackHandler, Image, Linking, NativeModules, Share, StyleSheet, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
@@ -25,6 +25,8 @@ type NetRequest = { type: "net"; id: string; path: string };
 type OpenMail = { type: "open-mail"; email: string };
 type OpenUrl = { type: "open-url"; url: string };
 type OpenSaved = { type: "open-saved"; name: string };
+type ShareText = { type: "share-text"; title?: string; text?: string; url?: string };
+type ExitApp = { type: "exit-app" };
 
 const BRIDGE = `(function(){
   if (window.__granthBridge) return true;
@@ -103,11 +105,32 @@ function Shell() {
   const insets = useSafeAreaInsets();
   const web = useRef<WebView>(null);
   const parts = useRef(new Map<string, string[]>());
+  const pendingLink = useRef<string | null>(null);
   const [splash, setSplash] = useState(true);
   const pad = `document.documentElement.style.setProperty('--apk-top','${Math.max(insets.top, 28)}px');document.documentElement.style.setProperty('--apk-bottom','${insets.bottom}px');document.body.classList.add('apk');true;`;
   useEffect(() => {
     const timer = setTimeout(() => setSplash(false), 2600);
     return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    const onBack = () => {
+      web.current?.injectJavaScript(
+        "if(window.__granthBack){window.__granthBack();}else if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify({type:'exit-app'}));}true;",
+      );
+      return true;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onBack);
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    const apply = (url: string | null) => {
+      if (!url) return;
+      pendingLink.current = url;
+      openDeepLink(web.current, url);
+    };
+    const sub = Linking.addEventListener("url", (event) => apply(event.url));
+    void Linking.getInitialURL().then(apply);
+    return () => sub.remove();
   }, []);
   useEffect(() => {
     web.current?.injectJavaScript(pad);
@@ -132,6 +155,7 @@ function Shell() {
         onLoadEnd={() => {
           web.current?.injectJavaScript(BRIDGE);
           web.current?.injectJavaScript(pad);
+          if (pendingLink.current) openDeepLink(web.current, pendingLink.current);
         }}
         onShouldStartLoadWithRequest={(request) => {
           if (request.url.startsWith("mailto:")) {
@@ -153,11 +177,44 @@ function Shell() {
   );
 }
 
-async function onBridge(raw: string, view: WebView | null, parts: Map<string, string[]>) {
-  let message: SaveChunk | NetRequest | OpenMail | OpenUrl | OpenSaved;
+function hashFromShareUrl(url: string) {
+  const normalized = url.replace(/^granth:\/\//, "https://granth.local/");
+  let parsed: URL;
   try {
-    message = JSON.parse(raw) as SaveChunk | NetRequest | OpenMail | OpenUrl | OpenSaved;
+    parsed = new URL(normalized);
   } catch {
+    return "";
+  }
+  const granth = parsed.searchParams.get("granth");
+  const topic = parsed.searchParams.get("topic");
+  const id = parsed.searchParams.get("id");
+  if (granth) return `#/pramans?granth=${encodeURIComponent(granth)}`;
+  if (topic) return `#/pramans?topic=${encodeURIComponent(topic)}`;
+  if (id) return `#/pramans?id=${encodeURIComponent(id)}`;
+  if (parsed.hash.startsWith("#/")) return parsed.hash;
+  return "";
+}
+
+function openDeepLink(view: WebView | null, url: string) {
+  const hash = hashFromShareUrl(url);
+  if (!hash || !view) return;
+  view.injectJavaScript(`window.__granthOpenLink&&window.__granthOpenLink(${JSON.stringify(hash)});true;`);
+}
+
+async function onBridge(raw: string, view: WebView | null, parts: Map<string, string[]>) {
+  let message: SaveChunk | NetRequest | OpenMail | OpenUrl | OpenSaved | ShareText | ExitApp;
+  try {
+    message = JSON.parse(raw) as SaveChunk | NetRequest | OpenMail | OpenUrl | OpenSaved | ShareText | ExitApp;
+  } catch {
+    return;
+  }
+  if (message.type === "exit-app") {
+    BackHandler.exitApp();
+    return;
+  }
+  if (message.type === "share-text") {
+    const text = message.text || message.url || message.title || "";
+    if (text) await Share.share({ title: message.title, message: text });
     return;
   }
   if (message.type === "open-saved") {
@@ -311,6 +368,12 @@ async function writeFile(message: SaveChunk, name: string, data: string) {
   }
   const uri = pdf && documentDirectory ? `${documentDirectory}Granth/${name}` : `${root}${name}`;
   await writeAsStringAsync(uri, data, { encoding: EncodingType.Base64 });
+  if (pdf) {
+    const copier = NativeModules.GranthDownloads as { copyToDownloads?: (path: string, name: string, mime: string) => Promise<string> } | undefined;
+    if (copier?.copyToDownloads && message.type === "save-chunk") {
+      await copier.copyToDownloads(uri, name, "application/pdf").catch(() => undefined);
+    }
+  }
   if (message.type === "share-chunk") {
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(uri, { mimeType: message.mime || (pdf ? "application/pdf" : "image/jpeg"), dialogTitle: name });

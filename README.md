@@ -1,17 +1,15 @@
-# ग्रंथ प्रबंधन — GitHub से APK
+# ग्रंथ प्रबंधन — Play Store AAB
 
-इस चैट से तैयार APK नहीं मिलती। यह ज़िप पूरा React Native प्रोजेक्ट है। GitHub पर पुश करते ही APK अपने आप बनती है।
-
-`README.md` repo की जड़ पर है — ज़िप निकालने के बाद यही फ़ाइल GitHub की पहली स्क्रीन पर दिखती है।
+GitHub पर पुश होते ही **signed AAB** बनती है (APK नहीं). Play Console में यही फ़ाइल डालो.
 
 ## कदम
 
-1. ज़िप निकालो। अंदर की फ़ाइलें (`README.md`, `package.json`, `package-lock.json`, `android`, `src`, `.github`) ही repo की जड़ हों। ज़िप फ़ाइल को GitHub पर मत डालना। `node_modules` मत डालना।
-2. नया GitHub repo बनाओ और सारी फ़ाइलें `main` ब्रांच पर पुश करो।
-3. GitHub पर **Actions** खोलो। `Android APK` वर्कफ़्लो चलेगा।
-4. खत्म होने पर **Artifacts** से `granth-prabandhan-apk` डाउनलोड करो। अंदर वाली `.apk` फ़ोन पर इंस्टॉल करो।
+1. `main` पर पुश हो चुका है. **Actions** में `Android AAB` वर्कफ़्लो खुलता है.
+2. खत्म होने पर **Artifacts** से `granth-prabandhan-aab` डाउनलोड करो. अंदर वाली `.aab` Play Console में अपलोड करो.
+3. साइन `android/keystore/` की keystore से होता है. Alias और password `satlok` हैं. `targetSdk` / `compileSdk` **36** हैं — अगस्त 2026 के बाद Play Store यही माँगता है.
+4. versionCode **11**, versionName **1.5.2**.
 
-पहली बिल्ड 15–25 मिनट ले सकती है। वर्जन Expo SDK 57 के साथ पिन हैं: React Native 0.86.3, React 19.2.3। यह APK साइडलोड के लिए debug key से बनी है। Play Store के लिए अपनी keystore लगानी होगी।
+पहली बिल्ड 15–25 मिनट ले सकती है. वर्जन Expo SDK 57: React Native 0.86.3, React 19.2.3.
 
 ## बाकी
 

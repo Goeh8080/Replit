@@ -85,15 +85,16 @@ android {
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
+    compileSdk 36
 
     namespace 'com.wnm.granthprabandhan'
     defaultConfig {
         applicationId 'com.wnm.granthprabandhan'
         minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.5.1"
+        // Play Store (Aug 31, 2026): new apps and updates must target API 36.
+        targetSdkVersion 36
+        versionCode 11
+        versionName "1.5.2"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -105,12 +106,18 @@ android {
             keyPassword 'android'
         }
         release {
-            def store = System.getenv("RELEASE_STORE_FILE")
-            if (store) {
-                storeFile file(store)
+            def envStore = System.getenv("RELEASE_STORE_FILE")
+            def bundled = file("${rootDir}/keystore/keystore")
+            if (envStore) {
+                storeFile file(envStore)
                 storePassword System.getenv("RELEASE_STORE_PASSWORD")
                 keyAlias System.getenv("RELEASE_KEY_ALIAS")
                 keyPassword System.getenv("RELEASE_KEY_PASSWORD")
+            } else if (bundled.exists()) {
+                storeFile bundled
+                storePassword "satlok"
+                keyAlias "satlok"
+                keyPassword "satlok"
             }
         }
     }
@@ -119,7 +126,9 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig System.getenv("RELEASE_STORE_FILE") ? signingConfigs.release : signingConfigs.debug
+            def envStore = System.getenv("RELEASE_STORE_FILE")
+            def bundled = file("${rootDir}/keystore/keystore")
+            signingConfig (envStore || bundled.exists()) ? signingConfigs.release : signingConfigs.debug
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds

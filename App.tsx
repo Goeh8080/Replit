@@ -4,7 +4,7 @@ import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
-import { BackHandler, Image, Linking, NativeModules, Share, StyleSheet, View } from "react-native";
+import { AppState, BackHandler, Image, Linking, NativeModules, Share, StyleSheet, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
@@ -123,6 +123,15 @@ function Shell() {
     return () => sub.remove();
   }, []);
   useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      web.current?.injectJavaScript(
+        "(function(){try{var root=document.getElementById('root');if(!root||root.childElementCount===0){location.reload();return;}document.body.style.transform='translateZ(0)';requestAnimationFrame(function(){document.body.style.transform='';});}catch(e){}})();true;",
+      );
+    });
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
     const apply = (url: string | null) => {
       if (!url) return;
       pendingLink.current = url;
@@ -149,6 +158,11 @@ function Shell() {
         allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs
         mixedContentMode="always"
+        cacheEnabled
+        onContentProcessDidTerminate={() => web.current?.reload()}
+        onRenderProcessGone={() => {
+          web.current?.reload();
+        }}
         setSupportMultipleWindows={false}
         injectedJavaScriptBeforeContentLoaded={BRIDGE}
         injectedJavaScript={pad}
